@@ -27,6 +27,7 @@ plotQualityProfile(fnFs[1:2])
 ```
 ```{r}
 plotQualityProfile(fnRs[1:2])
+# ici on voit que la séquence reverse pu du cul du coup on suppr pour arriver au total à 420.
 ```
 ```{r}
 # Place filtered files in filtered/ subdirectory
@@ -35,11 +36,13 @@ filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
 names(filtFs) <- sample.names
 names(filtRs) <- sample.names
 ```
+
 ```{r}
 out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,160),
               maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
               compress=TRUE, multithread=FALSE) 
-# On Windows set multithread=FALSE (only needed for filterAndTrim)
+# On Windows set multithread=FALSE (only needed for filterAndTrim), c'est une fonction de dada2. il lui faut la liste des fichiers à filter (sens et anti-sens) et la liste de les envoyer une fois filtré et hop coupure après 240 pour les forward et 180 pour les reverse (il enleve la partie couille sur les graphes)
+#maxn veut dire 0 pour éviter les incohérences, truncQ = 2, à partir que le Qscore est inf à 20 ça chochop. phiw permet de dire si un run de séquençage c'est bien passé.
 head(out)
 ```
 
@@ -90,4 +93,16 @@ colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "n
 rownames(track) <- sample.names
 head(track)
 ```
+```{r}
+taxa <- assignTaxonomy(seqtab.nochim, "~/tax/silva_nr99_v138.2_toGenus_trainset.fa.gz", multithread=TRUE)
+```
+```{r}
+#installation de philoseq pour l'identification
+if(!requireNamespace("BiocManager")){
+  install.packages("BiocManager")
+}
+BiocManager::install("phyloseq")
+```
+
+
 
