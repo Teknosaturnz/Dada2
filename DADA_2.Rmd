@@ -7,7 +7,7 @@ library(dada2); packageVersion("dada2")
 ```
 
 ```{r}
-path <- "/home/rstudio/Dada2/MiSeq_SOP"
+path <- "/home/rstudio/Dada2 Lilou/MiSeq_SOP"
 list.files(path)
 ```
 Ici ce sont des fichers FastQ, avec le Qscore donnant une estimation que de l'erreur.
@@ -25,10 +25,12 @@ plotQualityProfile(fnFs[1:2])
 # cycle = paire de base
 
 ```
+
 ```{r}
 plotQualityProfile(fnRs[1:2])
 # ici on voit que la séquence reverse pu du cul du coup on suppr pour arriver au total à 420.
 ```
+
 ```{r}
 # Place filtered files in filtered/ subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
