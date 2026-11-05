@@ -1,36 +1,64 @@
 ---
-title: "R Notebook"
+title: "Tutoriel Dada2"
 output: github_document
 ---
+Le metabarcoding est une méthode expérimentale permettant d'étudier la composition d'une communauté microbienne en prélevant de l'ADN environnemental.
+Suite à une amplification et un séquençage haut débit des régions choisies, il est nécessaire de faire un traitement bio-informatique pour analyser les données.
+
+Dada2 est justement utilisé dans ce but, sous forme de package dans R. Il s'agit d'un pipeline, donc une suite d'étapes réalisées dans un ordre précis. Le but de Dada2 est, à partir des fichiers bruts FastQ, d'identifier les ASV (soit les séquences exactes des régions amplifiées) via un modèle d'erreur. Suite à l'obtention des ASV, toujours avec Dada2, il va être possible de leur assigner une taxonomie.
+Avec un autre package : phyloseq, il est possible d'aller plus loin avec les données obtenues avec Dada2, comme une comparaison des communautés microbiennes.
+
+Les données utilisées ici pour cette démonstration de Dada2 et de phyloseq proviennent de l'étude Kozich et al. (2013). Cette étude décrit la mise au point d'une nouvelle stratégie de séquençage Illumina MiSeq adaptée à l'analyse du gène codant l'ARNr 16S : le séquençage Illumina MiSeq pair-end à double index.
+Le jeu de données provient d'échantillons fécaux de souris où les régions V4 de l'ARN16s ont été amplifiées puis séquencées (séquençage haut débit Illumina MiSeq). En plus de ces échantillons fécaux, il y a également une communauté Mock qui a été séquencée. Cette communauté Mock sert de témoin positif dans le traitement de données puisque sa composition en microorganismes est connue.
+
 ```{r}
 library(dada2); packageVersion("dada2")
 ```
 
+1) Première étape de la démonstration de Dada 2 :
+
+- la récupération des fichiers FastQ de l'étude.
 ```{r}
 path <- "/home/rstudio/Dada2 Lilou/MiSeq_SOP"
-list.files(path)
+list.files(path) #afin de voir les fichiers téléchargés
 ```
-Ici ce sont des fichers FastQ, avec le Qscore donnant une estimation que de l'erreur.
+Durant le séquençage pair-end, les séquences amplifiées sont lu à leurs 2 extremités. A la fin du séquençage, 2 reads (Forward et Reverse) complémentaires sont obtenus pour chaque séquence.
+
+En regardant les fichiers FastQ, les reads forward finissent par "_R1_001.fastq" et les reverse : "_R2_001.fastq". La première étape sert donc à séparer les 2 types de séquences pour les analyser séparément.
 
 ```{r}
-# Forward and reverse fastq filenames have format: SAMPLENAME_R1_001.fastq and SAMPLENAME_R2_001.fastq
 fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
 fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
-# Extract sample names, assuming file names have format: SAMPLENAME_XXX.fastq
+
 sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
 ```
 
+2) Les profils de qualité :
+Les Qscores sont obtenus durant le séquençage et sont contenus dans les fichiers FastQ. 
+Durant le séquençage, les reads peuvent contenir des erreurs de séquençage, comme l'attribution d'une mauvaise base. Chaque base identifiée est accompagnée d'un Q-score permettant d'estimer la « fiabilité » d'une base.
+Ces profils de qualité permettent de visualiser la distribution des Qscores de qualité donnés à chaque base des reads séquencés.
+
+
+La fonction plotQualityProfile permet de visualiser ce profil de qualité. L'axe vertical montre le Q-Score des bases et l'axe horizontal, leur position.
+Plus le score est élevé, plus la base attribuée lors du séquençage est fiable, et inversement.
+
+a) Le profil de qualité des reads forward :
 ```{r}
 plotQualityProfile(fnFs[1:2]) 
-# cycle = paire de base
-
 ```
+Via ces profils : les Q-scores des reads forward restent globalement élevé, puisqu'il est majoritairement supérieurs à 30 signifiant que les reads obtenus sont assez fiables. Cependant, il est possible d'observer une baisse des Q-scores après environ 220 bases, soit vers l'extrémité, ce qui reste donc correct pour la suite des analyses.
 
+b) Le profil de qualité des reads reverse : 
 ```{r}
 plotQualityProfile(fnRs[1:2])
-# ici on voit que la séquence reverse pu du cul du coup on suppr pour arriver au total à 420.
 ```
+Les Qscores des reads reverse sont globalement bons puisqu'élevés jusqu'à environ la 160ème base cependant, les Qscores se dégradent.
+En comprant les profils de qualité des reads forward et reverse, les reads reverse sont globalement moins fiables que les reads forward. Cela peut s'expliquer par le séquençage puisque, afin de lire les séquences reverse, cela nécessite des étapes supplémentaires pouvant diminuer la taille des clusters, l'intensité de la fluorescence, etc.
 
+Cette étape va également servir à choisir où tronquer/couper pour l'étape de filtrage :
+3) Filtrage 
+
+Création des fichiers filtrés :
 ```{r}
 # Place filtered files in filtered/ subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
@@ -39,55 +67,104 @@ names(filtFs) <- sample.names
 names(filtRs) <- sample.names
 ```
 
+A partir des informations observées sur les profils de qualité, les reads vont être filtrés et coupés afin de supprimer les reads les moins fiables.
+
+La fonction filterAndTrim va permettre de filtrer les reads.
+A l'interieur de cette fonction, truncLen permet de définir à partir de quelle base nos reads vont être coupés (là où les profils de qualité se dégradent).
+Ici, les reads forward vont être coupés à 240 et les reverses à 160, il est nécessaire de garder une marge de sécurité pour être sûr que les bases reverses et forward se chevauchent.
+En plus de trunclen,maxN = 0 permet de supprimer les bases indéterminées et maxEE permet de déterminer le maximum d'erreurs attendues, calculées à partir des Q-scores (ici 2 pour le forward et 2 pour reverse).
 ```{r}
 out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,160),
               maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
               compress=TRUE, multithread=FALSE) 
-# On Windows set multithread=FALSE (only needed for filterAndTrim), c'est une fonction de dada2. il lui faut la liste des fichiers à filter (sens et anti-sens) et la liste de les envoyer une fois filtré et hop coupure après 240 pour les forward et 180 pour les reverse (il enleve la partie couille sur les graphes)
-#maxn veut dire 0 pour éviter les incohérences, truncQ = 2, à partir que le Qscore est inf à 20 ça chochop. phiw permet de dire si un run de séquençage c'est bien passé.
-head(out)
+head(out) #permet d'afficher le tableau des 6 premiers fichiers FastQ filtrer et couper, il est donc possible de savoir combien de reads sont supprimés.
 ```
 
+4) Les erreurs de séquençage : 
+
+A partir des données précédentes, un modèle statistique d'erreurs va être créé afin d'estimer la fréquence des possibles erreurs de séquençage, notamment les changements de bases au sein des reads.
+Les profils de qualité des reads reverse et forward étant différents, il est nécessaire d'établir 2 modèles statistiques d'erreurs.
+Ces modèles vont comparer les taux d'erreurs observés dans les données à partir des Qscores, le taux d'erreur estimé par dada2 et le taux théorique attendu.
+
+Pour les forward : 
 ```{r}
 errF <- learnErrors(filtFs, multithread=TRUE)
 ```
+
+Pour les Reverse :
 ```{r}
 errR <- learnErrors(filtRs, multithread=TRUE)
 ```
+
+- vérification du modèle d'erreur :
 ```{r}
 plotErrors(errF, nominalQ=TRUE)
 ```
+Ces graphiques permettent de correspondre aux changements de bases possibles (G lu comme un T, etc.).
+
+La fréquence d'erreurs en lien avec le Qscore (les points noirs) doit suivre la même tendance que les fréquences d'erreurs observées (la courbe noire). 
+
+Ensuite, la fonction suivante va appliquer le modèle d'erreur précédent sur les reads, puis déterminer les ASV à partir des reads « sans erreur ».
 ```{r}
 dadaFs <- dada(filtFs, err=errF, multithread=TRUE)
 ```
+
 ```{r}
 dadaRs <- dada(filtRs, err=errR, multithread=TRUE)
 ```
+contrôle :
 ```{r}
 dadaFs[[1]]
 ```
+Via cette ligne de code, il est possible de savoir que pour le premier échantillon, qu'à partir des reads Forward, 128 ASV ont observé suite à l'application du modèle d'erreur et au regroupement de reads.
 
 ```{r}
+dadaRs[[1]]
+```
+Pour les reads Reverse : 119 ASV, toujours pour le premier échantillon.
+
+Cependant, ce ne sont pas les ASV finales puisqu'il est nécessaire de fusionner les reads forward et reverse.
+
+5) Fusion des fréquences reverse et Forward
+La fonction mergePairs va permettre de reconstituer les ASV à partir des reads.
+La fonction mergePairs va associer les reads reverse et forward du même fragment en remettant reverse dans le bon « sens ». De plus, cette fonction exige un chevauchement d'au moins 12 nucléotides pour que les reads soient fusionnés.
+```{r}
 mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose=TRUE)
-# Inspect the merger data.frame from the first sample
 head(mergers[[1]])
 ```
+- regroupement des séquences fusionnées :
+
 ```{r}
 seqtab <- makeSequenceTable(mergers)
-dim(seqtab)
+dim(seqtab) #donne la dimension du tableau obtenu 
 ```
+
+Ainsi, 20 lignes sont obtenues donc 20 échantillons avec 293 colonnes correspondant au nombre de séquences pour chaque échantillon.
+Cependant, il est nécessaire de vérifier que la longueur obtenue suite à ces traitements correspond à celle attendue pour ici la région V4 du gène 16s.
+
 ```{r}
-# Inspect distribution of sequence lengths
 table(nchar(getSequences(seqtab)))
 ```
+
+5) Traitement des chimères : 
+Les chimères sont des séquences fausses produites durant la PCR à partir de fragments provenant de 2 séquences différentes.
+Il est donc nécessaire de les supprimer afin de ne pas fausser le résultat. 
+Le programme suivant va donc rechercher les chimères dans chaque échantillon et les supprimer. 
+
 ```{r}
 seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
 dim(seqtab.nochim)
 ```
-```{r}
-sum(seqtab.nochim)/sum(seqtab)
-```
+suite à la fusion des reads reverse et forward, 293 colonnes ont été obtenu. Suite au retrait des chimères, il y a maintenant 232 colonnes soit 232 ASV.
 
+Calcul du pourcentage de reads conservés : 
+```{r}
+sum(seqtab.nochim)/sum(seqtab)*100
+```
+ici 96.40% des reads ont été conservés et qu'environ 3.60% ont été considéré comme des chimères. 
+
+6) Vérification des étapes
+Ici, il s'agit d'un contrôle/bilan de toutes les étapes précédentes pour être sûre de garder un maximum de données brutes et qu'il n'y est pas de pertes excessives entre les différentes étapes.
 
 ```{r}
 getN <- function(x) sum(getUniques(x))
@@ -97,17 +174,130 @@ colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "n
 rownames(track) <- sample.names
 head(track)
 ```
+
+La diminution du nombre de reads au fur et à mesure des étapes est observé grâce à ce tableau. Au vu de ces 6 premières lignes, il n'y a pas de perte extrême entre certaines étapes.
+
+7) Attribution taxonomique :
+
+A partir des étapes précédentes, la répartition des 232 ASV dans les 20 échantillons est connue. Il reste maintenant l'étape de leur attribuer une taxonomie en se basant sur la base de données silva.
+La fonction assigntaxonomy va attribuer une classification taxonomique des séquences finales.
+
 ```{r}
 taxa <- assignTaxonomy(seqtab.nochim, "/home/rstudio/Dada2 Lilou/silva_nr99_v138.2_toGenus_trainset.fa.gz", multithread=TRUE)
-```
-
-
-```{r}
-taxa.print <- taxa # Removing sequence rownames for display only
+# via wget -O silva_nr99_v138.2_toGenus_trainset.fa.gz "https://zenodo.org/records/14169026/files/silva_nr99_v138.2_toGenus_trainset.fa.gz?download=1" dans le terminal
+taxa.print <- taxa 
 rownames(taxa.print) <- NULL
-head(taxa.print)
+head(taxa.print)#affiche l'assignation taxo
 ```
+Le résultat montre que 5 des premiers ASV font partie de la famille des Muribaculaceae et un autre de la famille Bacteroidaceae plus précisément du genre des Bacteroides.
+
+8) Evaluation de la précision de dada2
+
+Afin d'évaluer la précision de Dada2 et d'être sûr que les ASV sont correct, la communauté Mock va être utilisé.
+
+- sélection des ASV présentes dans le mock :
+```{r}
+unqs.mock <- seqtab.nochim["Mock",]
+unqs.mock <- sort(unqs.mock[unqs.mock>0], decreasing=TRUE) # Drop ASVs absent in the Mock
+cat("DADA2 inferred", length(unqs.mock), "sample sequences present in the Mock community.\n")
+```
+Le pipeline a pu détecter 20 ASV différent dans l'échantillon Mock. 
+Il faut maintenant cherché ces ASV détectés dans Mock dans les ASV obtenus suite au traitement de dada2 
+```{r}
+mock.ref <- getSequences(file.path(path, "HMP_MOCK.v35.fasta"))
+match.ref <- sum(sapply(names(unqs.mock), function(x) any(grepl(x, mock.ref))))
+cat("Of those,", sum(match.ref), "were exact matches to the expected reference sequences.\n")
+```
+Suite à cette comparaison, les 20 ASV du mock dans le jeu de donnée correspondent au fichier de référence. Dada 2 a produit des ASV fiables et leur a attribué des taxonomies. Pour les analyser et visualiser les données.
+
+***avec cette nouvelle vm, je n'ai pas pu télécharger le package phyloseq, je pense que cela est dû au droit d'administrateur puisque je n'ai pas le droit d'executer et donc d'installer les packages. Avec ma précédente vm, j'ai pu aller jusqu'à la fin, je suis donc capable d'expliquer ce que fait chaque étape seulement je n'obtiens pas les graphiques. 
+De plus, étant donné que je n'ai pas pu télécharger les packages etc, je ne peux pas mettre sous forme de chunk le prgramme pour phyloseq
+
+9) Phyloseq 
+A. chargement des packages 
+
+library(phyloseq); packageVersion("phyloseq")
+library(Biostrings); packageVersion("Biostrings")
+library(ggplot2); packageVersion("ggplot2")
+theme_set(theme_bw())
 
 
+B. Récupération des métadonnées 
+Afin de mieux analyser les données, il est nécessaire de récupérer les métadonnées en lien avec la description du jeu de donnée.
+Les métadonnées présentes ici, en lien toujours avec l'étude Kozich et al. (2013) : 
+- l'identifiant de la souris
+- son genre
+- le nombre de jours après le sevrage
+- les prélèvements avant (avant les 100J) ou après sevrage (aprés les 100j)
+
+**
+samples.out <- rownames(seqtab.nochim)
+subject <- sapply(strsplit(samples.out, "D"), `[`, 1)
+gender <- substr(subject,1,1)
+subject <- substr(subject,2,999)
+day <- as.integer(sapply(strsplit(samples.out, "D"), `[`, 2))
+samdf <- data.frame(Subject=subject, Gender=gender, Day=day)
+samdf$When <- "Early"
+samdf$When[samdf$Day>100] <- "Late"
+rownames(samdf) <- samples.out
+**
+
+C. Rassemblement des données
+La fonction phyloseq va permettre de rassembler les données obtenues durant Dada2 comme les ASV, leur classification taxonomique ainsi que les métadonnées assigner précédemment tout en excluant les données de la communauté Mock.
+
+**
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE),
+               sample_data(samdf),
+               tax_table(taxa))
+ps <- prune_samples(sample_names(ps) != "Mock", ps)
+
+#il est également important de renommer les ASVs pour que lors de la visualisation en graphique ce ne soit pas leur séquence nucléotidique
+
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna)
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+ps
+**
+
+D. Analyse de l'Alpha diversité.
+L'alpha diversité permet d'analyser la diversité au sein d'un seul échantillon. 
+Les indices d'alpha diversité sont Shannon et Simpson.
+- Indice de shannon : permet de s'intéresser au ASV rare soit la richesse globale dans l'échantillon
+- Indice de simpson : permet de s'intéresser au ASV les plus abondantes et à leur dominance
+
+**
+plot_richness(ps, x="Day", measures=c("Shannon", "Simpson"), color="When")
+**
+
+Cependant, cette comparaison des 2 indices ne permet pas de faire une comparaison par rapport à la composition en ASV des différents échantillons.
+
+E. Analyse de la Beta diversité : 
+Suite à l'indice d'alpha diversité, il est nécessaire de regarder la beta diversité soit la comparaison de la composition en ASv de 2 échantillons.
+Ici, l'indice de Bray-Curtis permet d'analyser cette diversité, il va prendre les ASv partagés, les ASV différentes et leur abondance relative.
+
+**
+# Transform data to proportions as appropriate for Bray-Curtis distances
+ps.prop <- transform_sample_counts(ps, function(otu) otu/sum(otu))
+ord.nmds.bray <- ordinate(ps.prop, method="NMDS", distance="bray")
+plot_ordination(ps.prop, ord.nmds.bray, color="When", title="Bray NMDS")
+**
+
+F. Visualisation des ASV
+L'objectif ici de visualiser les 20 ASV les plus abondantes afin d'identifier les familles bactériennes dominantes et de comparer les 2 périodes early et late. 
+
+**
+top20 <- names(sort(taxa_sums(ps), decreasing=TRUE))[1:20]
+ps.top20 <- transform_sample_counts(ps, function(OTU) OTU/sum(OTU))
+ps.top20 <- prune_taxa(top20, ps.top20)
+plot_bar(ps.top20, x="Day", fill="Family") + facet_wrap(~When, scales="free_x")
+**
+
+10) Conclusion
+Cette démonstration des différentes étapes de DADA2 a permis de transformer des données brutes issues d'un séquençage Illumina MiSeq pair end à des ASV fiables ainsi que leur attribution taxonomique.
+De plus, le package phyloseq permet une meilleure analyse de ces ASV avec l'ajout des métadonnées. Ce package permet également une meilleure visualisation des données comme celle des indices, mais aussi un graphique montrant les familles de bactéries dominantes en fonction des périodes de prélèvements menant à l'interprétation de nos données.
+
+  
+  
 
 
