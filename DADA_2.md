@@ -10,7 +10,7 @@ library(dada2); packageVersion("dada2")
     ## [1] '1.40.0'
 
 ``` r
-path <- "/home/rstudio/Dada2/MiSeq_SOP"
+path <- "/home/rstudio/Dada2 Lilou/MiSeq_SOP"
 list.files(path)
 ```
 
@@ -66,6 +66,10 @@ plotQualityProfile(fnRs[1:2])
 ![](DADA_2_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
 
 ``` r
+# ici on voit que la séquence reverse pu du cul du coup on suppr pour arriver au total à 420.
+```
+
+``` r
 # Place filtered files in filtered/ subdirectory
 filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
 filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
@@ -77,7 +81,8 @@ names(filtRs) <- sample.names
 out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,160),
               maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
               compress=TRUE, multithread=FALSE) 
-# On Windows set multithread=FALSE (only needed for filterAndTrim)
+# On Windows set multithread=FALSE (only needed for filterAndTrim), c'est une fonction de dada2. il lui faut la liste des fichiers à filter (sens et anti-sens) et la liste de les envoyer une fois filtré et hop coupure après 240 pour les forward et 180 pour les reverse (il enleve la partie couille sur les graphes)
+#maxn veut dire 0 pour éviter les incohérences, truncQ = 2, à partir que le Qscore est inf à 20 ça chochop. phiw permet de dire si un run de séquençage c'est bien passé.
 head(out)
 ```
 
@@ -286,3 +291,28 @@ head(track)
     ## F3D142  3183     2914      2799      2830   2595    2521
     ## F3D143  3178     2941      2822      2868   2553    2519
     ## F3D144  4827     4312      4151      4228   3646    3507
+
+``` r
+taxa <- assignTaxonomy(seqtab.nochim, "/home/rstudio/Dada2 Lilou/silva_nr99_v138.2_toGenus_trainset.fa.gz", multithread=TRUE)
+```
+
+``` r
+taxa.print <- taxa # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+```
+
+    ##      Kingdom    Phylum         Class         Order           Family          
+    ## [1,] "Bacteria" "Bacteroidota" "Bacteroidia" "Bacteroidales" "Muribaculaceae"
+    ## [2,] "Bacteria" "Bacteroidota" "Bacteroidia" "Bacteroidales" "Muribaculaceae"
+    ## [3,] "Bacteria" "Bacteroidota" "Bacteroidia" "Bacteroidales" "Muribaculaceae"
+    ## [4,] "Bacteria" "Bacteroidota" "Bacteroidia" "Bacteroidales" "Muribaculaceae"
+    ## [5,] "Bacteria" "Bacteroidota" "Bacteroidia" "Bacteroidales" "Bacteroidaceae"
+    ## [6,] "Bacteria" "Bacteroidota" "Bacteroidia" "Bacteroidales" "Muribaculaceae"
+    ##      Genus        
+    ## [1,] NA           
+    ## [2,] NA           
+    ## [3,] NA           
+    ## [4,] NA           
+    ## [5,] "Bacteroides"
+    ## [6,] NA

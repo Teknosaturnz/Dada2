@@ -87,6 +87,8 @@ dim(seqtab.nochim)
 ```{r}
 sum(seqtab.nochim)/sum(seqtab)
 ```
+
+
 ```{r}
 getN <- function(x) sum(getUniques(x))
 track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
@@ -96,15 +98,16 @@ rownames(track) <- sample.names
 head(track)
 ```
 ```{r}
-taxa <- assignTaxonomy(seqtab.nochim, "~/tax/silva_nr99_v138.2_toGenus_trainset.fa.gz", multithread=TRUE)
+taxa <- assignTaxonomy(seqtab.nochim, "/home/rstudio/Dada2 Lilou/silva_nr99_v138.2_toGenus_trainset.fa.gz", multithread=TRUE)
 ```
+
+
 ```{r}
-#installation de philoseq pour l'identification
-if(!requireNamespace("BiocManager")){
-  install.packages("BiocManager")
-}
-BiocManager::install("phyloseq")
+taxa.print <- taxa # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
 ```
+
 
 
 
